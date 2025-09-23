@@ -37,14 +37,25 @@ struct CaptureView: View {
                 .clipped()
             VStack {
                 Text("Capture").font(.title)
+                
                 Spacer()
+                
                 if let err = model.errorMessage {
                     Text(err).font(.footnote).foregroundColor(.red)
                 }
+                
+                HStack {
+                    if model.isLoading {
+                        ProgressView().padding(.bottom, 2)
+                    }
+                    Text(model.statusMessage)
+                        .font(.footnote)
+                }
+                
                 HStack {
                     Button("Capture") { model.capture() }
                     // Button("Update") { model.updateCurrentVignetteJSON() }
-                    Button("SAM") {
+                    Button("Local SAM") {
                         Task {
                             try? await model.lastVignette?.generateSAMMask()
                         }
@@ -52,7 +63,7 @@ struct CaptureView: View {
                     Button("Refresh UI") {
                         refreshID = UUID()
                     }
-                    Button("Save Crop") {
+                    Button("Save") {
                         Task {
                             guard let vignette = model.lastVignette else { return }
                             do {
@@ -70,9 +81,22 @@ struct CaptureView: View {
                     }
                 }
                 
+                HStack {
+                    Button("Test Server") {
+                        model.testServerConnection()
+                    }
+                    Button("Server SAM") {
+                        model.startSegmentationProcess()
+                    }
+                    .disabled(model.lastVignette == nil)
+                    
+                }
+                
+                
+                
                 if model.lastVignette?.rawMaskLogits != nil {
                     VStack {
-                        Text(String(format: "Mask Threshold: %.2f", maskThreshold))
+                        Text(String(format: "Local Mask Threshold: %.2f", maskThreshold))
                             .foregroundColor(.white)
                         Slider(
                             value: $maskThreshold,
@@ -82,6 +106,19 @@ struct CaptureView: View {
                                 updateFinalMaskImage()
                             }
                         )
+                    }
+                    .padding()
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(20)
+                    .padding(.horizontal)
+                }
+                if model.rawLogits != nil {
+                    VStack {
+                        Text(String(format: "Server Mask Threshold: %.2f", model.maskThreshold))
+                        Slider(value: $model.maskThreshold, in: -10...10)
+                        Button("Apply Mask") {
+                            model.finalizeMaskOnServer()
+                        }
                     }
                     .padding()
                     .background(Color.black.opacity(0.5))
@@ -103,6 +140,11 @@ struct CaptureView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(maxWidth: 100)
+                            .border(Color.white, width: 1)
+                    }
+                    if let preview = model.previewMask {
+                        Image(preview.image, scale: 1.0, label: Text("Live Mask"))
+                            .resizable().scaledToFit().frame(maxWidth: 100)
                             .border(Color.white, width: 1)
                     }
                     if let vignette = model.lastVignette,

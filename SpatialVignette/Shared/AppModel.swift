@@ -11,6 +11,10 @@ import SwiftUI
 import RealityKit
 import MetalKit
 
+struct LogitsPreview: Identifiable {
+    let id = UUID()
+    let image: CGImage
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -20,7 +24,20 @@ final class AppModel: ObservableObject {
     private let storage = StorageManager.shared
     
     @Published var lastVignette: SpatialVignette?
+    var lastTappedUV: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @Published var errorMessage: String?
+    
+    @Published var isLoading: Bool = false
+        @Published var statusMessage: String = "Ready to start."
+        @Published var previewMask: LogitsPreview?
+        @Published var maskThreshold: Float = 0.0 {
+            // When the slider changes this value, regenerate the preview image.
+            didSet {
+                generatePreviewMaskFromStoredLogits()
+            }
+        }
+    private var serverVignetteID: String?
+    @Published var rawLogits: ServerAPIService.LogitsResult?
     
     // The point clouds being visualized
     @Published var pointCloudIDs: [UUID] = []
@@ -181,6 +198,7 @@ final class AppModel: ObservableObject {
     
     @MainActor
     func describeSubjectOfLastVignette() async {
+        /*
         guard let vignette = lastVignette,
               // Assuming you have the final masked image stored somewhere
               let subjectCGImage = vignette.createFinalMaskedImage(withThreshold: 0.0) else { // Or use a saved threshold
@@ -196,6 +214,76 @@ final class AppModel: ObservableObject {
             // e.g., self.subjectDescription = description
         } else {
             print("Failed to get a description from the AI.")
+        }
+         */
+    }
+    
+    // MARK: - Segmentation with SAM
+    func startSegmentationProcess() {
+        guard let vignette = lastVignette else {
+            statusMessage = "Error: No vignette captured."
+            return
+        }
+        
+        self.isLoading = true
+        self.statusMessage = "Uploading vignette..."
+        self.previewMask = nil
+        self.rawLogits = nil
+        
+        Task {
+            do {
+                // Step 1: Upload
+                let vignetteID = try await ServerAPIService.shared.uploadVignette(vignette, uv: lastTappedUV)
+                self.serverVignetteID = vignetteID
+                
+                // Step 2: Get Logits
+                self.statusMessage = "Vignette uploaded! Getting segmentation data..."
+                let logitsResult = try await ServerAPIService.shared.getLogits(for: vignetteID)
+                self.rawLogits = logitsResult
+                
+                // Step 3: Generate the first preview
+                generatePreviewMaskFromStoredLogits()
+                self.statusMessage = "Ready! Adjust the threshold with the slider."
+                
+            } catch {
+                self.statusMessage = "Error: \(error.localizedDescription)"
+            }
+            self.isLoading = false
+        }
+    }
+    
+    func finalizeMaskOnServer() {
+        guard let vignetteID = serverVignetteID else {
+            statusMessage = "Error: No vignette has been uploaded yet."
+            return
+        }
+        
+        self.isLoading = true
+        self.statusMessage = "Finalizing mask on server..."
+        
+        Task {
+            do {
+                try await ServerAPIService.shared.getMask(for: vignetteID, threshold: self.maskThreshold)
+                self.statusMessage = "Success! Mask saved on server with threshold \(String(format: "%.2f", maskThreshold))."
+            } catch {
+                self.statusMessage = "Error: \(error.localizedDescription)"
+            }
+            self.isLoading = false
+        }
+    }
+    
+    private func generatePreviewMaskFromStoredLogits() {
+        guard let logits = rawLogits else { return }
+        
+        // This is a client-side operation, so it's very fast.
+        // It uses a helper to convert the raw data into a displayable image.
+        if let cgImage = ImageUtils.createMaskImage(
+            from: logits.data,
+            width: logits.width,
+            height: logits.height,
+            threshold: self.maskThreshold
+        ) {
+            self.previewMask = LogitsPreview(image: cgImage)
         }
     }
 }
