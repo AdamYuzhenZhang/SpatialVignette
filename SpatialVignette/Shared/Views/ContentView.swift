@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selection: Tab = .composer
+    @State private var selection: Tab = .capture
     @State private var scene = VignetteScene.loadScene()
     enum Tab { case capture, composer }
     
