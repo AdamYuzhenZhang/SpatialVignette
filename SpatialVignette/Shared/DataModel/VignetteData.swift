@@ -20,6 +20,9 @@ public struct VignetteData: Codable {
     public var capture: CaptureBlock
     
     public var samMaskThreshold: Float?
+    
+    // Abstraction results
+    var abstractionResults: AbstractionBlock?
 }
 
 public struct VignettePaths: Codable {
@@ -69,6 +72,29 @@ public struct GPS: Codable {
     
     public func toCLLocation() -> CLLocation {
         CLLocation(latitude: lat, longitude: lon)
+    }
+}
+
+
+struct AbstractionBlock: Codable {
+    
+    // 1. Server-Generated Abstractions (Planes, Cylinders, Axes)
+    // This is the core output from your Python pipeline.
+    var serverNodes: [VignetteNode]
+    
+    // 2. Client-Generated Nodes (User Sketches, Annotations)
+    // These are created by the Apple Pencil on the iPad.
+    var userNodes: [VignetteNode]?
+    
+    // Optional: Global metadata about the overall abstraction process
+    var globalParameters: [String: Float]?
+    
+    var allNodes: [VignetteNode] {
+        var nodes = serverNodes
+        if let user = userNodes {
+            nodes.append(contentsOf: user)
+        }
+        return nodes
     }
 }
 
